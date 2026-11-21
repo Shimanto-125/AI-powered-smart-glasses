@@ -6,3 +6,5 @@ numpy>=1.26.0
 pytesseract>=0.3.10
 gTTS>=2.5.0
 requests>=2.31.0
+streamlit-webrtc>=0.70.0
+av>=15.0.0
