@@ -1,3 +1,4 @@
+import os
 import time
 import cv2
 import numpy as np
@@ -64,14 +65,18 @@ except Exception as e:
 
 
 def open_specific_camera(index):
-    """Attempt to open ONLY the user-selected camera index across multiple backends."""
-    for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+    """Attempt to open ONLY the user-selected camera index across multiple backends with warm-up."""
+    backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if os.name == "nt" else [cv2.CAP_V4L2, cv2.CAP_ANY]
+    for backend in backends:
         try:
             cap = cv2.VideoCapture(int(index), backend)
             if cap.isOpened():
-                ret, frame = cap.read()
-                if ret and frame is not None:
-                    return cap
+                # Allow camera sensor a few frames to initialize/warm up
+                for _ in range(3):
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        return cap
+                    time.sleep(0.05)
                 cap.release()
         except Exception:
             pass
@@ -81,15 +86,20 @@ def open_specific_camera(index):
 def scan_available_cameras(max_check=4):
     """Scan and return list of working camera indices."""
     active = []
+    backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if os.name == "nt" else [cv2.CAP_V4L2, cv2.CAP_ANY]
     for i in range(max_check):
-        for backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]:
+        for backend in backends:
             try:
                 cap = cv2.VideoCapture(i, backend)
                 if cap.isOpened():
-                    ret, frame = cap.read()
-                    if ret and frame is not None:
-                        active.append(i)
-                        cap.release()
+                    for _ in range(2):
+                        ret, frame = cap.read()
+                        if ret and frame is not None:
+                            active.append(i)
+                            cap.release()
+                            break
+                        time.sleep(0.05)
+                    if i in active:
                         break
                     cap.release()
             except Exception:
@@ -107,6 +117,11 @@ mode = st.radio(
 
 if mode == "🎥 Live Camera (রিয়েল-টাইম লাইভ ক্যামেরা, অবজেক্ট ও লেখা পড়া)":
     st.subheader("🎥 Real-Time Live Detection, OCR & Voice Feedback")
+    st.info(
+        "💡 **ক্লাউড বনাম লোকাল ব্যবহার তথ্য:**\n"
+        "- **Streamlit Cloud (অনলাইনে):** ক্লাউড হোস্টিং দূরবর্তী সার্ভারে চলে, তাই সার্ভার সরাসরি আপনার ল্যাপটপের ইউএসবি ক্যামেরা এক্সেস করতে পারে না। অনলাইনে ক্যামেরা টেস্ট করতে উপরের **'📸 Snapshot & Upload'** মোডে যান (সেখানে ব্রাউজার ক্যামেরা সরাসরি কাজ করে)।\n"
+        "- **লোকাল পিসি / স্মার্ট গ্লাস হার্ডওয়্যার:** লাইভ ভিডিও স্ট্রিম চালানোর জন্য আপনার পিসির টার্মিনালে লোকালভাবে চালান: `streamlit run app.py` বা `python live_detect.py`।"
+    )
     st.write("ক্যামেরা অন করলে স্বয়ংক্রিয়ভাবে অবজেক্ট ডিটেক্ট করবে এবং অপশন অন থাকলে চারপাশের লেখাও (OCR) পড়বে।")
 
     # Camera selector & scan
@@ -167,10 +182,13 @@ if mode == "🎥 Live Camera (রিয়েল-টাইম লাইভ ক�
         if cap is None:
             st.error(
                 f"❌ **Camera {selected_camera_idx} ({selected_cam_name}) খোলা সম্ভব হয়নি!**\n\n"
-                "সম্ভাব্য সমাধান:\n"
+                "🌐 **আপনি কি এটি Streamlit Cloud (অনলাইন ওয়েবসাইট)-এ ব্যবহার করছেন?**\n"
+                "- Streamlit Cloud একটি রিমোট সার্ভারে চলে, যেখানে কোনো ফিজিক্যাল ক্যামেরা থাকে না। পাইথনের `OpenCV` রিমোট ক্লাউড থেকে আপনার ল্যাপটপের ইউএসবি ক্যামেরা পড়তে পারে না।\n"
+                "- **ক্লাউডে সমাধান:** উপরের মোড থেকে **'📸 Snapshot & Upload'** সিলেক্ট করুন এবং **'Or capture image with browser camera'** ব্যবহার করুন। এটি আপনার ল্যাপটপ বা মোবাইলের ব্রাউজার ক্যামেরা অন করে সঙ্গে সঙ্গে ডিটেকশন ও ভয়েস ফিডব্যাক দেবে!\n\n"
+                "💻 **আপনি যদি আপনার নিজের ল্যাপটপে লোকালভাবে চালিয়ে থাকেন:**\n"
                 "1. আপনার ইউএসবি ওয়েবক্যামটি কম্পিউটারে ঠিকমতো লাগানো আছে কি না চেক করুন।\n"
-                "2. অন্য কোনো অ্যাপ (যেমন Zoom, Google Meet, Teams, বা ক্যামেরা অ্যাপ) ক্যামেরাটি ব্যবহার করে থাকলে তা বন্ধ করুন।\n"
-                "3. উপরের ড্রপডাউন থেকে অন্য ক্যামেরা ইন্ডেক্স (যেমন Camera 0 বা Camera 1) সিলেক্ট করে আবার চালু করুন।"
+                "2. অন্য কোনো অ্যাপ (যেমন Zoom, Google Meet, Teams, বা Windows Camera App) ক্যামেরাটি ব্যবহার করে থাকলে তা বন্ধ করুন।\n"
+                "3. উইন্ডোজ সেটিংস থেকে `Settings -> Privacy & Security -> Camera`-তে Desktop Apps-এর জন্য ক্যামেরা এক্সেস চালু আছে কি না দেখুন।"
             )
         else:
             status_box.info(f"🎥 লাইভ ক্যামেরা চালু আছে ({selected_cam_name})... বন্ধ করতে উপরের টগলটি অফ করুন।")
