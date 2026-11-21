@@ -1,0 +1,33 @@
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Datasets (Do NOT upload gigabytes of images to GitHub)
+datasets/
+yolo_dataset/
+*.zip
+
+# Training runs & logs
+runs/
+*.log
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit local credentials
+.streamlit/credentials.toml
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
