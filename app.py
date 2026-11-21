@@ -19,6 +19,12 @@ try:
 except ImportError:
     HAS_WEBRTC = False
 
+try:
+    from camera_input_live import camera_input_live
+    HAS_LIVE_CAM = True
+except ImportError:
+    HAS_LIVE_CAM = False
+
 st.set_page_config(page_title="AI Smart Glasses", page_icon="👓", layout="wide")
 st.title("👓 AI-Powered Smart Glasses")
 st.caption("Academic prototype: real-time object awareness, OCR and voice feedback")
@@ -77,7 +83,16 @@ if HAS_WEBRTC:
             "iceServers": [
                 {"urls": ["stun:stun.l.google.com:19302"]},
                 {"urls": ["stun:stun1.l.google.com:19302"]},
-                {"urls": ["stun:stun2.l.google.com:19302"]},
+                {"urls": ["stun:openrelay.metered.ca:80"]},
+                {
+                    "urls": [
+                        "turn:openrelay.metered.ca:80",
+                        "turn:openrelay.metered.ca:443",
+                        "turns:openrelay.metered.ca:443",
+                    ],
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject",
+                },
             ]
         }
     )
@@ -187,7 +202,8 @@ if mode == "🎥 Live Camera (রিয়েল-টাইম লাইভ ক�
     stream_method = st.radio(
         "ক্যামেরা সংযোগ মাধ্যম নির্বাচন করুন:",
         [
-            "🌐 WebRTC Live Camera (ব্রাউজার ক্যামেরা — Streamlit Cloud এবং লোকাল উভয় জায়গায় লাইভ কাজ করে)",
+            "⚡ Instant Live Camera (কোনো STUN/TURN সমস্যা নেই — সরাসরি ব্রাউজার ক্যামেরা) [প্রস্তাবিত]",
+            "🌐 WebRTC Video Streamer (OpenRelay TURN সার্ভার সহ)",
             "💻 Local OpenCV Direct (শুধুমাত্র আপনার নিজের পিসিতে চালানোর জন্য)",
         ],
         index=0,
@@ -195,8 +211,80 @@ if mode == "🎥 Live Camera (রিয়েল-টাইম লাইভ ক�
         key="stream_method_radio",
     )
 
-    if "WebRTC" in stream_method:
-        st.info("💡 **WebRTC লাইভ ক্যামেরা:** নিচে **'START'** বাটনে ক্লিক করে ব্রাউজার ক্যামেরা পারমিশন ('Allow') দিন। ড্রপডাউন থেকে আপনার ল্যাপটপের ক্যামেরা বা এক্সটার্নাল ইউএসবি ক্যামেরা বেছে নিতে পারবেন। লাইভ ভিডিওতে স্বয়ংক্রিয়ভাবে ডিটেকশন বক্স ও লেবেল দেখা যাবে।")
+    if stream_method.startswith("⚡ Instant Live Camera"):
+        st.info("💡 **ইনস্ট্যান্ট লাইভ ক্যামেরা:** এটি সরাসরি ব্রাউজারের মাধ্যমে কন্টিনিউয়াস ফ্রেম লাইভ প্রসেস করে। কোনো STUN/TURN বা ফায়ারওয়াল ব্লকিং সমস্যা নেই। ব্রাউজার ক্যামেরা অন করতে নিচে ক্যামেরার পারমিশন দিন।")
+
+        c_conf1, c_conf2, c_conf3, c_conf4 = st.columns([1, 1, 1, 1])
+        with c_conf1:
+            focal_inst = st.number_input("Calibrated focal length (0 to disable distance)", min_value=0.0, value=0.0, step=50.0, key="inst_focal")
+        with c_conf2:
+            conf_inst = st.slider("Live Confidence", min_value=0.05, max_value=0.90, value=global_conf, step=0.05, key="inst_conf_slider")
+        with c_conf3:
+            inst_ocr_lang = st.selectbox("OCR Language / লেখার ভাষা", ["eng", "ben", "ben+eng"], index=0, key="inst_ocr_lang_select")
+        with c_conf4:
+            enable_inst_ocr = st.checkbox("📖 Live Text OCR", value=True, key="inst_enable_ocr")
+
+        if HAS_LIVE_CAM:
+            live_image = camera_input_live(debounce=600, key="instant_live_camera_widget")
+
+            if live_image is not None:
+                pil_img = Image.open(live_image).convert("RGB")
+                frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+                out, dets, msgs = analyze(frame, model, conf=conf_inst, focal_px=focal_inst or None)
+
+                latest_text = ""
+                if enable_inst_ocr:
+                    try:
+                        _, _, found_text = detect_and_draw_text(frame, lang=inst_ocr_lang)
+                        if found_text:
+                            latest_text = found_text
+                    except Exception:
+                        pass
+
+                if latest_text:
+                    cv2.rectangle(out, (10, out.shape[0] - 40), (out.shape[1] - 10, out.shape[0] - 10), (30, 30, 30), -1)
+                    cv2.putText(
+                        out,
+                        f"TEXT: {latest_text[:45]}",
+                        (15, out.shape[0] - 18),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 220, 255),
+                        2,
+                    )
+
+                st.image(cv2.cvtColor(out, cv2.COLOR_BGR2RGB), channels="RGB", use_container_width=True)
+
+                c_stat1, c_stat2 = st.columns(2)
+                with c_stat1:
+                    if msgs:
+                        st.success(f"🔍 **শনাক্ত বস্তু:** {' | '.join(msgs)}")
+                    else:
+                        st.caption("কোনো পরিচিত বস্তু সামনে নেই।")
+                with c_stat2:
+                    if latest_text:
+                        st.info(f"📖 **পঠিত লেখা:** `{latest_text}`")
+                    else:
+                        st.caption("কোনো লেখা শনাক্ত হয়নি।")
+
+                spoken = ""
+                if msgs:
+                    spoken += ". ".join(msgs[:3])
+                if latest_text:
+                    spoken += f". লেখা দেখা যাচ্ছে: {latest_text}"
+
+                if spoken:
+                    if st.button("🔊 Voice Announcement / পড়ে শোনান", key="btn_inst_voice"):
+                        speak(spoken, lang="bn", async_mode=True)
+                        aud = make_audio(spoken, lang="bn")
+                        if aud:
+                            st.audio(aud, format="audio/mp3", autoplay=True)
+        else:
+            st.error("streamlit-camera-input-live প্যাকেজটি পাওয়া যায়নি।")
+
+    elif stream_method.startswith("🌐 WebRTC Video Streamer"):
+        st.info("💡 **WebRTC লাইভ ক্যামেরা:** নিচে **'START'** বাটনে ক্লিক করে ব্রাউজার ক্যামেরা পারমিশন ('Allow') দিন। ড্রপডাউন থেকে আপনার ল্যাপটপের ক্যামেরা বা এক্সটার্নাল ইউএসবি ক্যামেরা বেছে নিতে পারবেন।")
 
         c_conf1, c_conf2, c_conf3, c_conf4 = st.columns([1, 1, 1, 1])
         with c_conf1:
